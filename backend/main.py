@@ -38,6 +38,14 @@
 #         "answer":"This is a placedholder - we'll connect this to a real AI answer soon"
 #     }
 
+# db.query(models.Role).filter(models.Role.name == "general").first() 
+# — looks up the actual Role row by name, rather than hardcoding a number like role_id=4. 
+# This is safer/clearer — if you ever reseed roles and the IDs shift, this code doesn't break.
+# role_id=general_role.id 
+# — assigns the new user to that role's numeric ID, matching the foreign key column.
+
+#This works because of the relationship("Role", ...) 
+# we defined in models.py — current_user.role now gives you the full related Role object, and .name pulls the actual string off it.
 
 from fastapi import FastAPI,Depends,HTTPException
 from pydantic import BaseModel
@@ -65,16 +73,18 @@ def signup(request:SignupRequest,db:Session=Depends(get_db)):
     if existing_user:
         raise HTTPException(status_code=400,detail="Email already registered")
     
+    general_role = db.query(models.Role).filter(models.Role.name == "general").first()
+
     new_user = models.User(
         email = request.email,
         hashed_password=hash_password(request.password),
-        role="user"
+        role_id = general_role.id
     )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
 
-    return{"id":new_user.id,"email":new_user.email,"role":new_user.role}
+    return{"id":new_user.id,"email":new_user.email,"role":new_user.role.name}
 
 
 class LoginRequest(BaseModel):
@@ -97,5 +107,5 @@ def read_current_user(current_user:models.User=Depends(get_current_user)):
     return{
         "id":current_user.id,
         "email":current_user.email,
-        "role":current_user.role
+        "role":current_user.role.name
     }

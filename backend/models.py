@@ -22,8 +22,29 @@
 # hashed_password = Column(String, nullable=False) — notice: hashed, not plain password. We will never store a user's actual password in the database — only a one-way scrambled version. We'll cover exactly how/why when we build signup in the next step.
 # role = Column(String, default="user", nullable=False) — this is the field that will later power your permission system (e.g. "admin" vs "user" vs "hr"). default="user" means if nothing is specified, new accounts default to a basic role.
 
-from sqlalchemy import Column, Integer, String
+# ForeignKey("roles.id") — this is how a "reference" is expressed in SQL/SQLAlchemy. User.role_id doesn't store a role's name — it stores the id number of a row in the roles table. This is the actual database-level link.
+# relationship("Role", back_populates="users") — this is a SQLAlchemy-only convenience, not a real database column. It lets you write Python like some_user.role.name to directly access the related Role object, instead of manually writing a join query yourself every time. 
+# back_populates just means "these two relationships are two sides of the same connection" — so Role.users and User.role stay in sync with each other conceptually.
+# Document.uploaded_by = Column(Integer, ForeignKey("users.id")) — same pattern: this column stores which user's id uploaded the document.
+# DateTime(timezone=True), server_default=func.now() — this tells Postgres itself (not Python) to automatically stamp the current time when a row is created. 
+# server_default (vs a Python-side default) means it's reliable even if multiple different services insert rows — the database's clock is the single source of truth.
+# DocumentPermission — exactly the join table from the diagram: just two foreign keys (document_id, role_id) plus its own id. 
+# Each row is literally one permission grant.
+
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
 from database import Base
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
+
+class Role(Base):
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False)
+
+    users = relationship("User", back_populates="role")
+
 
 class User(Base):
     __tablename__ = "users"
@@ -31,5 +52,24 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
-    role = Column(String, default="user", nullable=False)
+    role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
 
+    role = relationship("Role", back_populates="users")
+
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    filename = Column(String, nullable=False)
+    uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class DocumentPermission(Base):
+    __tablename__ = "document_permissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)          
