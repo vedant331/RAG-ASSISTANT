@@ -52,7 +52,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database import engine,Base ,get_db
 from auth import hash_password,verify_password,create_access_token
-from dependencies import get_current_user
+from dependencies import get_current_user,require_admin
 import models
 
 Base.metadata.create_all(bind =engine)
@@ -108,4 +108,31 @@ def read_current_user(current_user:models.User=Depends(get_current_user)):
         "id":current_user.id,
         "email":current_user.email,
         "role":current_user.role.name
+    }
+
+class DocumentCreateRequest(BaseModel):
+    title:str
+    filename: str
+
+@app.post("/documents")
+def create_document(
+    request:DocumentCreateRequest,
+    db:Session = Depends(get_db),
+    admin_user: models.User = Depends(require_admin)
+):
+    new_document = models.Document(
+        title = request.title,
+        filename = request.filename,
+        uploaded_by = admin_user.id
+    )
+    db.add(new_document)
+    db.commit()
+    db.refresh(new_document)
+
+    return{
+        "id":new_document.id,
+        "title":new_document.title,
+        "filename":new_document.filename,
+        "uploaded_by": new_document.uploaded_by,
+        "created_at": new_document.created_at
     }
