@@ -9,7 +9,7 @@ A permission-aware RAG system where document retrieval respects role-based acces
 - [x] PostgreSQL + SQLAlchemy integration
 - [x] User signup with bcrypt password hashing
 - [x] JWT-based login and protected routes
-- [ ] Role-based document permissions (in progress)
+- [x] Role-based document permissions (in progress)
 - [ ] Vector search with pgvector
 - [ ] RAG generation with citations
 - [ ] React frontend
