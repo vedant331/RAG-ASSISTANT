@@ -47,6 +47,18 @@
 #This works because of the relationship("Role", ...) 
 # we defined in models.py — current_user.role now gives you the full related Role object, and .name pulls the actual string off it.
 
+# document_id: int as a function parameter, matching {document_id} in the route path — same pattern as /greet/{name}, just typed as int this time instead of str. 
+# FastAPI automatically converts the URL text to an integer, and rejects the request with a clean validation error if someone passes something that isn't a number.
+# status_code=404 — "Not Found." Different from 401/403: this means the thing you're asking about doesn't exist at all, not that you're unauthorized to see it.
+# The duplicate-check (existing = db.query(...)) prevents granting the same role the same document twice — good defensive practice, same instinct as the duplicate-email check in signup.
+# f"Role '{role.name}' granted access to document {document_id}" — an f-string building a human-readable confirmation message
+
+
+# .join(models.DocumentPermission, models.Document.id == models.DocumentPermission.document_id) — this is a SQL JOIN, combining rows from documents and document_permissions wherever their IDs match. In plain terms: "connect each document to its permission records."
+# .filter(models.DocumentPermission.role_id == current_user.role_id) — this is the critical line. It only keeps documents where the joined permission record's role_id matches the logged-in user's own role. This filtering happens as part of the database query itself — before any results are ever pulled into Python or returned to the client. This is exactly the "filter before retrieval, not after" principle from your original project plan. A user literally cannot receive a document row their role isn't permitted to see — it's excluded at the SQL level.
+# [{...} for doc in documents] — a list comprehension, a compact way of building a list by transforming each item. This is equivalent to writing a for loop that appends a dictionary for each document, just more concise. Worth getting comfortable reading this pattern since it's everywhere in Python.
+
+
 from fastapi import FastAPI,Depends,HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -96,8 +108,7 @@ def login(request:LoginRequest,db:Session=Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == request.email).first()
 
     if not user or not verify_password(request.password,user.hashed_password):
-        raise HTTPException(status_Code=401,detail="Incorrect email or passowrd")
-
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
     access_token = create_access_token(data={"sub":user.email})
 
     return {"accesss_token":access_token,"token_type":"bearer"}
@@ -136,3 +147,51 @@ def create_document(
         "uploaded_by": new_document.uploaded_by,
         "created_at": new_document.created_at
     }
+
+class GrantPermissionRequest(BaseModel):
+    role_name : str
+
+@app.post("/documents/{document_id}/permissions")
+def grant_permission(
+    document_id : int,
+    request : GrantPermissionRequest,
+    db:Session = Depends(get_db),
+    admin_user: models.User = Depends(require_admin)
+):
+    document = db.query(models.Document).filter(models.Document.id == document_id).first()
+    if document is None:
+        raise HTTPException(status_code = 404,detail="Document not found")
+    
+    role = db.query(models.Role).filter(models.Role.name == request.role_name).first()
+    if role is None:
+        raise HTTPException(status_code=404, detail="Role not found")
+    
+    existing = db.query(models.DocumentPermission).filter(
+        models.DocumentPermission.document_id == document_id,
+        models.DocumentPermission.role_id == role.id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code = 400,detail="Permission already registered")
+    
+    new_permission = models.DocumentPermission(document_id = document_id,role_id = role.id)
+    db.add(new_permission)
+    db.commit()
+
+    return{"message":f"Role '{role.name}' granted access to document {document_id}"}
+
+@app.get("/documents")
+def list_documents(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    documents = (
+        db.query(models.Document)
+        .join(models.DocumentPermission, models.Document.id == models.DocumentPermission.document_id)
+        .filter(models.DocumentPermission.role_id == current_user.role_id)
+        .all()
+    )
+
+    return [
+        {"id": doc.id, "title": doc.title, "filename": doc.filename, "created_at": doc.created_at}
+        for doc in documents
+    ]
