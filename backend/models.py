@@ -35,7 +35,7 @@ from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
 from database import Base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-
+from pgvector.sqlalchemy import Vector
 
 class Role(Base):
     __tablename__ = "roles"
@@ -73,3 +73,11 @@ class DocumentPermission(Base):
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)          
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+
+    id = Column(Integer,primary_key=True,index=True)
+    document_id = Column(Integer,ForeignKey("documents.id"),nullable=False)
+    chunk_text = Column(String,nullable=False)
+    embedding = Column(Vector(384))
