@@ -80,6 +80,22 @@
 # The return no longer includes extracted_text_preview — swapped for num_chunks, a more meaningful confirmation now that chunking is the actual output we care about.
 # embedding = get_embedding(chunk) — generates a real vector for this specific chunk's text
 # embedding=embedding — passes it into the DocumentChunk object, filling in the column that's been sitting empty until now
+# from sqlalchemy import text as sql_text — SQLAlchemy normally wants you to build queries through its ORM, but for pgvector's special <=> operator, 
+# it's clearer (and very common practice) to just write the SQL directly. text(...) wraps a raw SQL string so SQLAlchemy knows to execute it as-is.
+# query: str as a plain function parameter (not from a Pydantic body) — for a GET endpoint, 
+# FastAPI automatically treats simple parameters like this as query parameters, meaning you'd call this endpoint like /test-search?query=how many vacation days. This is a new pattern: not a path parameter ({query} in the URL), not a request body — a third kind of input, appended after a ? in the URL.
+# embedding <=> CAST(:query_embedding AS vector) — the actual similarity search. :query_embedding is a named parameter placeholder — SQLAlchemy safely substitutes in the actual value, which prevents SQL injection attacks (never build SQL by directly gluing strings together with user input — this parameterized style is the safe way).
+# CAST(:query_embedding AS vector) — we're passing the embedding in as a string representation, and this tells Postgres to interpret it as an actual vector type for the comparison.
+# AS distance — names this calculated column distance so we can reference it afterward.
+# ORDER BY distance ASC LIMIT 3 — sort by closeness (smallest distance = most similar), take the top 3 matches.
+# WHERE embedding IS NOT NULL — skips that old empty row from Day 17 we talked about, so it doesn't cause an error trying to compare against nothing.
+# db.execute(...) instead of db.query(...) — this is how you run raw SQL text through SQLAlchemy, as opposed to the ORM query builder you've used everywhere else.
+# .fetchall() — retrieves all matching rows.
+# row.id, row.document_id, etc. — accessing columns by name off each result row.
+
+
+
+
 
 from fastapi import FastAPI,Depends,HTTPException,UploadFile,File
 from pydantic import BaseModel
@@ -88,6 +104,7 @@ from database import engine,Base ,get_db
 from auth import hash_password,verify_password,create_access_token
 from dependencies import get_current_user,require_admin
 from chunking import chunk_text
+from sqlalchemy import text as sql_text
 from embeddings import get_embedding
 import models
 
@@ -257,3 +274,23 @@ async def upload_document(
         "filename" : new_document.filename,
         "extracted_text_preview" : len(chunks)
     }
+
+@app.get("/test-search/")
+def test_search(query:str,db:Session = Depends(get_db)):
+    query_embedding = get_embedding(query)
+
+    results = db.execute(
+        sql_text("""
+                SELECT id, document_id, chunk_text, embedding <=> CAST(:query_embedding AS vector) AS distance
+                FROM document_chunks
+                WHERE embedding IS NOT NULL
+                ORDER BY distance ASC
+                LIMIT 3
+        """),
+        {"query_embedding":str(query_embedding)}
+    ).fetchall()
+
+    return [
+        {"id":row.id,"document_id":row.document_id,"chunk_text":row.chunk_text,"distance":row.distance}
+        for row in results
+    ]
