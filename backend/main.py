@@ -69,7 +69,15 @@
 # file.filename — FastAPI automatically captures the original filename the user uploaded.
 # text[:200] — this is Python's slice syntax, meaning "take the first 200 characters." 
 # We're just returning a preview so you can visually confirm extraction worked, not the full text (which could be huge).
-
+# from chunking import chunk_text — importing your new function, add this near the top of main.py with your other imports.
+# chunks = chunk_text(text) — runs your chunking logic on the extracted text, using the default chunk_size=500, overlap=50.
+# for chunk in chunks: — loops through every chunk produced.
+# new_chunk = models.DocumentChunk(document_id=new_document.id, chunk_text=chunk) — creates a database row for each chunk, linking it back to the parent document. 
+# Notice: embedding is deliberately left unset here — we haven't generated real embeddings yet, that's tomorrow's step. 
+# For now, this column will just be NULL for each row, which is fine.
+# db.add(new_chunk) — stages each chunk for insertion, but notice this is inside the loop while db.commit() is outside it, after the loop finishes. T
+# his is intentional: staging multiple inserts and committing them all at once is more efficient than committing after every single chunk — one round-trip to the database instead of many.
+# The return no longer includes extracted_text_preview — swapped for num_chunks, a more meaningful confirmation now that chunking is the actual output we care about.
 
 
 from fastapi import FastAPI,Depends,HTTPException,UploadFile,File
@@ -78,6 +86,7 @@ from sqlalchemy.orm import Session
 from database import engine,Base ,get_db
 from auth import hash_password,verify_password,create_access_token
 from dependencies import get_current_user,require_admin
+from chunking import chunk_text
 import models
 
 Base.metadata.create_all(bind =engine)
@@ -228,9 +237,19 @@ async def upload_document(
     db.commit()
     db.refresh(new_document)
 
+    chunks = chunk_text(text)
+    
+    for chunk in chunks:
+        new_chunk = models.DocumentChunk(
+            document_id = new_document.id,
+            chunk_text = chunk
+        )
+        db.add(new_chunk)
+    db.commit()
+
     return {
         "id" : new_document.id,
         "title" : new_document.title,
         "filename" : new_document.filename,
-        "extracted_text_preview" : text[:200]
+        "extracted_text_preview" : len(chunks)
     }
