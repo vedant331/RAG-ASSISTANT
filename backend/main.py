@@ -58,8 +58,21 @@
 # .filter(models.DocumentPermission.role_id == current_user.role_id) — this is the critical line. It only keeps documents where the joined permission record's role_id matches the logged-in user's own role. This filtering happens as part of the database query itself — before any results are ever pulled into Python or returned to the client. This is exactly the "filter before retrieval, not after" principle from your original project plan. A user literally cannot receive a document row their role isn't permitted to see — it's excluded at the SQL level.
 # [{...} for doc in documents] — a list comprehension, a compact way of building a list by transforming each item. This is equivalent to writing a for loop that appends a dictionary for each document, just more concise. Worth getting comfortable reading this pattern since it's everywhere in Python.
 
+# from fastapi import UploadFile, File — UploadFile is the type representing an uploaded file; File(...) marks the parameter as required and tells FastAPI to expect it as a file upload, not a JSON field.
+# async def upload_document(...) — notice async def instead of plain def for the first time. File reading is an operation that can involve waiting (I/O), and async/await is Python's way of handling operations that "pause" without blocking your whole program. For now, the practical rule: when you use await inside a function, the function itself must be declared async def.
+# title: str — a plain string parameter, but notice it's not wrapped in a Pydantic model this time. When you mix file uploads with other fields, 
+# FastAPI expects simple fields like this to come in as form fields, not JSON — this is a quirk of how multipart/form-data works.
+# file: UploadFile = File(...) — the actual uploaded file object.
+# contents = await file.read() — reads the raw bytes of the uploaded file. 
+# The await here is what makes this an asynchronous operation — your server can handle other requests while waiting for this read to complete, rather than freezing.
+# text = contents.decode("utf-8") — the file arrives as raw bytes; .decode("utf-8") converts those bytes into an actual Python string, assuming the file is UTF-8 encoded text (true for basic .txt files).
+# file.filename — FastAPI automatically captures the original filename the user uploaded.
+# text[:200] — this is Python's slice syntax, meaning "take the first 200 characters." 
+# We're just returning a preview so you can visually confirm extraction worked, not the full text (which could be huge).
 
-from fastapi import FastAPI,Depends,HTTPException
+
+
+from fastapi import FastAPI,Depends,HTTPException,UploadFile,File
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database import engine,Base ,get_db
@@ -195,3 +208,29 @@ def list_documents(
         {"id": doc.id, "title": doc.title, "filename": doc.filename, "created_at": doc.created_at}
         for doc in documents
     ]
+
+@app.post("/documents/upload")
+async def upload_document(
+    title: str,
+    file : UploadFile = File(...),
+    db : Session = Depends(get_db),
+    admin_user: models.User = Depends(require_admin)
+):
+    contents = await file.read()
+    text = contents.decode("utf-8")
+
+    new_document = models.Document(
+        title = title,
+        filename = file.filename,
+        uploaded_by = admin_user.id
+    )
+    db.add(new_document)
+    db.commit()
+    db.refresh(new_document)
+
+    return {
+        "id" : new_document.id,
+        "title" : new_document.title,
+        "filename" : new_document.filename,
+        "extracted_text_preview" : text[:200]
+    }
