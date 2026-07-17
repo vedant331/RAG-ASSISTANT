@@ -78,7 +78,8 @@
 # db.add(new_chunk) — stages each chunk for insertion, but notice this is inside the loop while db.commit() is outside it, after the loop finishes. T
 # his is intentional: staging multiple inserts and committing them all at once is more efficient than committing after every single chunk — one round-trip to the database instead of many.
 # The return no longer includes extracted_text_preview — swapped for num_chunks, a more meaningful confirmation now that chunking is the actual output we care about.
-
+# embedding = get_embedding(chunk) — generates a real vector for this specific chunk's text
+# embedding=embedding — passes it into the DocumentChunk object, filling in the column that's been sitting empty until now
 
 from fastapi import FastAPI,Depends,HTTPException,UploadFile,File
 from pydantic import BaseModel
@@ -87,6 +88,7 @@ from database import engine,Base ,get_db
 from auth import hash_password,verify_password,create_access_token
 from dependencies import get_current_user,require_admin
 from chunking import chunk_text
+from embeddings import get_embedding
 import models
 
 Base.metadata.create_all(bind =engine)
@@ -240,9 +242,11 @@ async def upload_document(
     chunks = chunk_text(text)
     
     for chunk in chunks:
+        embedding = get_embedding(chunk)
         new_chunk = models.DocumentChunk(
             document_id = new_document.id,
-            chunk_text = chunk
+            chunk_text = chunk,
+            embedding = embedding
         )
         db.add(new_chunk)
     db.commit()
