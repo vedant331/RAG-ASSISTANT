@@ -7,9 +7,13 @@
 import { useState, useEffect } from "react"
 import LoginPage from "./LoginPage"
 import ChatPage from "./ChatPage"
+import AdminPage from "./AdminPage"
+import { getCurrentUser } from "./api"
 
 function App() {
   const [token, setToken] = useState<string | null>(null)
+  const [role, setRole] = useState<string | null>(null)
+  const [view, setView] = useState<"chat" | "admin">("chat")
 
   useEffect(() => {
     const storedToken = localStorage.getItem("token")
@@ -17,6 +21,14 @@ function App() {
       setToken(storedToken)
     }
   }, [])
+
+  useEffect(() => {
+    if (token) {
+      getCurrentUser(token)
+        .then((data) => setRole(data.role))
+        .catch(() => handleLogout())
+    }
+  }, [token])
 
   function handleLoginSuccess(newToken: string) {
     localStorage.setItem("token", newToken)
@@ -26,13 +38,51 @@ function App() {
   function handleLogout() {
     localStorage.removeItem("token")
     setToken(null)
+    setRole(null)
+    setView("chat")
   }
 
   if (!token) {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />
   }
 
-  return <ChatPage token={token} onLogout={handleLogout} />
+  return (
+    <div className="min-h-screen bg-bg text-text font-sans flex flex-col">
+      <header className="border-b border-border px-6 py-4 flex justify-between items-center">
+        <div className="flex items-center gap-6">
+          <p className="font-mono text-xs text-text-muted uppercase tracking-wider">
+            RAG Knowledge Assistant
+          </p>
+          <button
+            onClick={() => setView("chat")}
+            className={`font-mono text-xs ${view === "chat" ? "text-accent" : "text-text-muted"}`}
+          >
+            Chat
+          </button>
+          {role === "admin" && (
+            <button
+              onClick={() => setView("admin")}
+              className={`font-mono text-xs ${view === "admin" ? "text-accent" : "text-text-muted"}`}
+            >
+              Admin
+            </button>
+          )}
+        </div>
+        <button
+          onClick={handleLogout}
+          className="font-mono text-xs text-text-muted hover:text-text transition-colors"
+        >
+          Log out
+        </button>
+      </header>
+
+      {view === "admin" && role === "admin" ? (
+  <AdminPage token={token} />
+) : (
+  <ChatPage token={token} onLogout={handleLogout} embedded />
+)}
+    </div>
+  )
 }
 
 export default App

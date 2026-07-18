@@ -5,6 +5,7 @@ import type { ChatMessage } from "./types"
 interface ChatPageProps {
   token: string
   onLogout: () => void
+  embedded?: boolean
 }
 
 function ChatPage({ token, onLogout }: ChatPageProps) {
@@ -41,19 +42,7 @@ function ChatPage({ token, onLogout }: ChatPageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-bg text-text font-sans flex flex-col">
-      <header className="border-b border-border px-6 py-4 flex justify-between items-center">
-        <p className="font-mono text-xs text-text-muted uppercase tracking-wider">
-          RAG Knowledge Assistant
-        </p>
-        <button
-          onClick={onLogout}
-          className="font-mono text-xs text-text-muted hover:text-text transition-colors"
-        >
-          Log out
-        </button>
-      </header>
-
+    <div className="flex-1 flex flex-col">
       <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 max-w-3xl w-full mx-auto">
         {messages.length === 0 && (
           <p className="font-mono text-sm text-text-muted">

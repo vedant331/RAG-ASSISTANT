@@ -18,7 +18,17 @@
 // // Notice: no body this time, since GET requests don't send a request body — all the info needed (query in the URL, token in the header) travels outside the body.
 // response.status === 401 — specifically checks for the "unauthorized" status code (your backend returns this for expired/invalid tokens), distinct from other kinds of failures.
 // throw new Error("UNAUTHORIZED") — a specific, recognizable error message.
-// Back in ChatPage, err.message === "UNAUTHORIZED" catches this specific case and calls onLogout() — automatically clearing the stale token and kicking the user back to the login screen, rather than leaving them stuck with a confusing generic error.
+// // Back in ChatPage, err.message === "UNAUTHORIZED" catches this specific case and calls onLogout() — automatically clearing the stale token and kicking the user back to the login screen, rather than leaving them stuck with a confusing generic error.
+// new FormData() — this is the browser's built-in way of building a multipart/form-data payload 
+// (remember this term from Day 16 — it's what your /documents/upload endpoint expects, since it handles both a text field and a file together).
+// formData.append("title", title) / formData.append("file", file) 
+// — adds each piece, matching the exact field names your FastAPI endpoint expects (title: str and file: UploadFile).
+// Notice: no "Content-Type": "application/json" header for the upload function — when sending FormData, 
+// the browser automatically sets the correct multipart/form-data content type (including a special boundary marker) for you. Manually setting it yourself would actually break the request
+
+
+
+
 
 const API_BASE_URL = "http://127.0.0.1:8000"
 
@@ -47,6 +57,53 @@ export async function askQuestion(query: string, token: string) {
 
   if (!response.ok) {
     throw new Error("Failed to get an answer")
+  }
+
+  return response.json()
+}
+export async function getCurrentUser(token: string) {
+  const response = await fetch(`${API_BASE_URL}/me`, {
+    method: "GET",
+    headers: { "Authorization": `Bearer ${token}` },
+  })
+
+  if (!response.ok) {
+    throw new Error("UNAUTHORIZED")
+  }
+
+  return response.json()
+}
+
+export async function uploadDocument(title: string, file: File, token: string) {
+  const formData = new FormData()
+  formData.append("title", title)
+  formData.append("file", file)
+
+  const response = await fetch(`${API_BASE_URL}/documents/upload`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}` },
+    body: formData,
+  })
+
+  if (!response.ok) {
+    throw new Error("Upload failed")
+  }
+
+  return response.json()
+}
+
+export async function grantPermission(documentId: number, roleName: string, token: string) {
+  const response = await fetch(`${API_BASE_URL}/documents/${documentId}/permissions`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ role_name: roleName }),
+  })
+
+  if (!response.ok) {
+    throw new Error("Failed to grant permission")
   }
 
   return response.json()
