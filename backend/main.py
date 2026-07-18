@@ -112,6 +112,7 @@ from dependencies import get_current_user,require_admin
 from chunking import chunk_text
 from sqlalchemy import text as sql_text
 from embeddings import get_embedding
+from llm import generate_answer
 import models
 
 Base.metadata.create_all(bind =engine)
@@ -315,3 +316,46 @@ def search_documents(
         }
         for row in results
     ]
+
+@app.get("/ask")
+def ask(
+    query:str,
+    db:Session = Depends(get_db),
+    current_user:models.User = Depends(get_current_user)
+):
+    query_embedding = get_embedding(query)
+
+    results = db.execute(
+        sql_text("""
+                 SELECT dc.id, dc.document_id, dc.chunk_text, d.title,
+                   dc.embedding <=> CAST(:query_embedding AS vector) AS distance
+                 FROM document_chunks dc
+                 JOIN documents d ON dc.document_id = d.id
+                 JOIN document_permissions dp ON d.id = dp.document_id
+                 WHERE dp.role_id = :role_id
+                    AND dc.embedding IS NOT NULL
+                    AND dc.embedding <=> CAST(:query_embedding AS vector) < 0.6
+                 ORDER BY distance ASC
+                 LIMIT 3
+        """),
+        {"query_embedding":str(query_embedding),"role_id":current_user.role_id}
+    ).fetchall()
+
+    if not results:
+        return {
+            "answer": "I couldn't find any relevant information in the documents you have access to.",
+            "sources": []
+        }
+    
+    context_chunks = [row.chunk_text for row in results]
+    answer = generate_answer(query,context_chunks)
+
+    sources = [
+        {"document_title":row.title,"document_id":row.document_id}
+        for row in results
+    ]
+    return {
+        "answer":answer,
+        "sources":sources
+    }
+ 
