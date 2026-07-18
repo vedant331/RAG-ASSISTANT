@@ -92,7 +92,13 @@
 # db.execute(...) instead of db.query(...) — this is how you run raw SQL text through SQLAlchemy, as opposed to the ORM query builder you've used everywhere else.
 # .fetchall() — retrieves all matching rows.
 # row.id, row.document_id, etc. — accessing columns by name off each result row.
-
+# Depends(get_current_user) instead of no auth at all — this endpoint now requires a logged-in user, 
+# since the whole point is filtering by who they are.
+# JOIN documents d ON dc.document_id = d.id — connects each chunk back to its parent document (so we can also show the document's title in results — useful context, and a preview of the "citations" feature coming next).
+# JOIN document_permissions dp ON d.id = dp.document_id — connects each document to its permission records. This is the exact same join pattern from Week 2's GET /documents, just now combined with vector search in a single query.
+# WHERE dp.role_id = :role_id — this is the critical line. Only chunks belonging to documents permitted for the current user's role are even considered. '
+# 'Combined with the ORDER BY distance happening on this already-filtered set, unauthorized chunks are mathematically excluded from ranking — they were never compared against the query embedding for this user's results at all.
+# {"query_embedding": ..., "role_id": current_user.role_id} — two named parameters now, both safely substituted in.
 
 
 
@@ -275,22 +281,37 @@ async def upload_document(
         "extracted_text_preview" : len(chunks)
     }
 
-@app.get("/test-search/")
-def test_search(query:str,db:Session = Depends(get_db)):
+@app.get("/search")
+def search_documents(
+    query:str,
+    db:Session = Depends(get_db),
+    current_user : models.User = Depends(get_current_user)
+):
     query_embedding = get_embedding(query)
 
     results = db.execute(
         sql_text("""
-                SELECT id, document_id, chunk_text, embedding <=> CAST(:query_embedding AS vector) AS distance
-                FROM document_chunks
-                WHERE embedding IS NOT NULL
+                 SELECT dc.id, dc.document_id, dc.chunk_text, d.title,
+                    dc.embedding <=> CAST(:query_embedding AS vector) AS distance
+                FROM document_chunks dc
+                JOIN documents d ON dc.document_id = d.id
+                JOIN document_permissions dp ON d.id = dp.document_id
+                WHERE dp.role_id = :role_id
+                    AND dc.embedding IS NOT NULL
+                    AND dc.embedding <=> CAST(:query_embedding AS vector) < 0.6
                 ORDER BY distance ASC
                 LIMIT 3
-        """),
-        {"query_embedding":str(query_embedding)}
+                 """),
+                 {"query_embedding":str(query_embedding),"role_id":current_user.role_id}
     ).fetchall()
 
     return [
-        {"id":row.id,"document_id":row.document_id,"chunk_text":row.chunk_text,"distance":row.distance}
+        {
+            "chunk_id": row.id,
+            "document_id": row.document_id,
+            "document_title": row.title,
+            "chunk_text": row.chunk_text,
+            "distance": row.distance
+        }
         for row in results
     ]
