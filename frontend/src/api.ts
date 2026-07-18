@@ -9,8 +9,13 @@
 // — if a variable name matches the key name, you can skip repeating it.
 // if (!response.ok) — response.ok is true for any successful HTTP status (200-299), false otherwise (like your 401 for wrong credentials). 
 // This is how JavaScript checks for errors, since fetch doesn't automatically throw an error on a 401/400 the way you might expect.
-// return response.json() — parses the response body from JSON text into a usable JavaScript object.
-
+// // return response.json() — parses the response body from JSON text into a usable JavaScript object.
+// encodeURIComponent(query) — your /ask endpoint takes query as a URL parameter (?query=...), same as it did in /docs. 
+// But raw text can contain spaces, question marks, and other characters that would break a URL if inserted directly. 
+// encodeURIComponent safely converts those into URL-safe encoding (e.g. a space becomes %20) — this is the JavaScript equivalent of what Swagger's "Try it out" was doing invisibly for you this whole time.
+// headers: { "Authorization": \Bearer ${token}` }` — this is the exact same header format you've been manually pasting into Swagger's "Authorize" button, 
+// now built programmatically. This is how your protected endpoint knows who's asking.
+// Notice: no body this time, since GET requests don't send a request body — all the info needed (query in the URL, token in the header) travels outside the body.
 
 
 const API_BASE_URL = "http://127.0.0.1:8000"
@@ -26,4 +31,17 @@ export async function login(email: string, password: string) {
         throw new Error("Incorrect email or password")
     }
     return response.json()
+}
+
+export async function askQuestion(query: string, token: string) {
+  const response = await fetch(`${API_BASE_URL}/ask?query=${encodeURIComponent(query)}`, {
+    method: "GET",
+    headers: { "Authorization": `Bearer ${token}` },
+  })
+
+  if (!response.ok) {
+    throw new Error("Failed to get an answer")
+  }
+
+  return response.json()
 }

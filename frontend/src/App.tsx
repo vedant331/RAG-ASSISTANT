@@ -6,6 +6,7 @@
 
 import { useState } from "react"
 import LoginPage from "./LoginPage"
+import ChatPage from "./ChatPage"
 
 function App() {
   const [token, setToken] = useState<string | null>(null)
@@ -14,11 +15,7 @@ function App() {
     return <LoginPage onLoginSuccess={setToken} />
   }
 
-  return (
-    <div className="min-h-screen bg-bg text-text font-sans p-8">
-      <p className="font-mono text-sm">Logged in. Token stored.</p>
-    </div>
-  )
+  return <ChatPage token={token} />
 }
 
 export default App
