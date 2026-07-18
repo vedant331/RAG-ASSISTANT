@@ -11,7 +11,7 @@ A permission-aware RAG system where document retrieval respects role-based acces
 - [x] JWT-based login and protected routes
 - [x] Role-based document permissions (in progress)
 - [x] Vector search with pgvector
-- [ ] RAG generation with citations
+- [x] RAG generation with citations
 - [ ] React frontend
 - [ ] Cloud deployment
 

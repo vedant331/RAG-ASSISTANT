@@ -104,6 +104,7 @@
 
 
 from fastapi import FastAPI,Depends,HTTPException,UploadFile,File
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database import engine,Base ,get_db
@@ -118,6 +119,13 @@ import models
 Base.metadata.create_all(bind =engine)
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/health") # decorator 
 def health_chec():
@@ -159,7 +167,7 @@ def login(request:LoginRequest,db:Session=Depends(get_db)):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
     access_token = create_access_token(data={"sub":user.email})
 
-    return {"accesss_token":access_token,"token_type":"bearer"}
+    return {"access_token":access_token,"token_type":"bearer"}
 
 @app.get("/me")
 def read_current_user(current_user:models.User=Depends(get_current_user)):
