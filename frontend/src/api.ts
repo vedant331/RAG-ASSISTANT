@@ -15,8 +15,10 @@
 // encodeURIComponent safely converts those into URL-safe encoding (e.g. a space becomes %20) — this is the JavaScript equivalent of what Swagger's "Try it out" was doing invisibly for you this whole time.
 // headers: { "Authorization": \Bearer ${token}` }` — this is the exact same header format you've been manually pasting into Swagger's "Authorize" button, 
 // now built programmatically. This is how your protected endpoint knows who's asking.
-// Notice: no body this time, since GET requests don't send a request body — all the info needed (query in the URL, token in the header) travels outside the body.
-
+// // Notice: no body this time, since GET requests don't send a request body — all the info needed (query in the URL, token in the header) travels outside the body.
+// response.status === 401 — specifically checks for the "unauthorized" status code (your backend returns this for expired/invalid tokens), distinct from other kinds of failures.
+// throw new Error("UNAUTHORIZED") — a specific, recognizable error message.
+// Back in ChatPage, err.message === "UNAUTHORIZED" catches this specific case and calls onLogout() — automatically clearing the stale token and kicking the user back to the login screen, rather than leaving them stuck with a confusing generic error.
 
 const API_BASE_URL = "http://127.0.0.1:8000"
 
@@ -38,6 +40,10 @@ export async function askQuestion(query: string, token: string) {
     method: "GET",
     headers: { "Authorization": `Bearer ${token}` },
   })
+
+  if (response.status === 401) {
+    throw new Error("UNAUTHORIZED")
+  }
 
   if (!response.ok) {
     throw new Error("Failed to get an answer")

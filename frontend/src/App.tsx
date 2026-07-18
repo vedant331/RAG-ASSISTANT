@@ -4,18 +4,35 @@
 // onLoginSuccess={setToken} — passing React's own setToken function directly as the prop 
 // — when LoginPage calls onLoginSuccess(someToken), it's really calling setToken(someToken), updating App's state, which causes App to re-render and show the logged-in view instead.
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import LoginPage from "./LoginPage"
 import ChatPage from "./ChatPage"
 
 function App() {
   const [token, setToken] = useState<string | null>(null)
 
-  if (!token) {
-    return <LoginPage onLoginSuccess={setToken} />
+  useEffect(() => {
+    const storedToken = localStorage.getItem("token")
+    if (storedToken) {
+      setToken(storedToken)
+    }
+  }, [])
+
+  function handleLoginSuccess(newToken: string) {
+    localStorage.setItem("token", newToken)
+    setToken(newToken)
   }
 
-  return <ChatPage token={token} />
+  function handleLogout() {
+    localStorage.removeItem("token")
+    setToken(null)
+  }
+
+  if (!token) {
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />
+  }
+
+  return <ChatPage token={token} onLogout={handleLogout} />
 }
 
 export default App
