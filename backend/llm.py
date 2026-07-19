@@ -26,3 +26,26 @@ def generate_answer(question:str,context_chunks:list[str])->str:
     )
 
     return response["message"]["content"]
+
+def generate_answer_stream(question: str, context_chunks: list[str]):
+    context_text = "\n\n---\n\n".join(context_chunks)
+
+    system_prompt = (
+        "You are a helpful assistant answering questions using only the provided context. "
+        "If the answer cannot be found in the context, say so clearly instead of guessing. "
+        "Be concise and direct."
+    )
+
+    user_message = f"Context:\n{context_text}\n\nQuestion: {question}"
+
+    stream = ollama.chat(
+        model="llama3.2",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ],
+        stream=True
+    )
+
+    for chunk in stream:
+        yield chunk["message"]["content"]

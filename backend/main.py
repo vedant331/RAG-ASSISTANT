@@ -98,12 +98,19 @@
 # JOIN document_permissions dp ON d.id = dp.document_id — connects each document to its permission records. This is the exact same join pattern from Week 2's GET /documents, just now combined with vector search in a single query.
 # WHERE dp.role_id = :role_id — this is the critical line. Only chunks belonging to documents permitted for the current user's role are even considered. '
 # 'Combined with the ORDER BY distance happening on this already-filtered set, unauthorized chunks are mathematically excluded from ranking — they were never compared against the query embedding for this user's results at all.
-# {"query_embedding": ..., "role_id": current_user.role_id} — two named parameters now, both safely substituted in.
+# # {"query_embedding": ..., "role_id": current_user.role_id} — two named parameters now, both safely substituted in.
+# from fastapi.responses import StreamingResponse — a special FastAPI response type that keeps the connection open and sends data incrementally, instead of the normal "compute everything, send once" pattern.
+# def event_generator(): — a nested generator function defined inside the endpoint. This is a common pattern: it captures results, query, etc. from the enclosing scope without needing to pass them as arguments.
+# yield f"data: {json.dumps({...})}\n\n" — this is the SSE format: the literal text data: , followed by a JSON string, followed by two newlines (\n\n), which signals "end of this event" to the browser.
+# json.dumps({...}) — converts a Python dictionary into a JSON string, since SSE just sends plain text, not real Python objects.
+# Two event types: "chunk" (a piece of the answer arriving) and "done" (signals the stream is finished, and carries the sources — sent once at the end rather than with every chunk, since it doesn't change mid-stream).
+# # return StreamingResponse(event_generator(), media_type="text/event-stream") — media_type="text/event-stream" is the specific MIME type that tells the browser "this is an SSE stream, handle it accordingly.
+# Limiter(key_func=get_remote_address) — creates the limiter, configured to track limits per client IP address (get_remote_address extracts the caller's IP from each request). This means each unique user/machine gets their own separate limit budget.
+# app.state.limiter = limiter — attaches the limiter to your FastAPI app so it's accessible throughout.
+# add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler) — registers what happens when someone exceeds their limit: this handler automatically returns a clean 429 Too Many Requests response.
 
 
-
-
-from fastapi import FastAPI,Depends,HTTPException,UploadFile,File
+from fastapi import FastAPI,Depends,HTTPException,UploadFile,File,Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -111,10 +118,15 @@ from database import engine,Base ,get_db
 from auth import hash_password,verify_password,create_access_token
 from dependencies import get_current_user,require_admin
 from chunking import chunk_text
+from fastapi.responses import StreamingResponse
 from sqlalchemy import text as sql_text
 from embeddings import get_embedding
-from llm import generate_answer
+from llm import generate_answer,generate_answer_stream
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import models
+import json
 
 Base.metadata.create_all(bind =engine)
 
@@ -126,6 +138,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+limiter = Limiter(key_func = get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded,_rate_limit_exceeded_handler)
+
 
 @app.get("/health") # decorator 
 def health_chec():
@@ -326,7 +343,9 @@ def search_documents(
     ]
 
 @app.get("/ask")
+@limiter.limit("10/minute")
 def ask(
+    request:Request,
     query:str,
     db:Session = Depends(get_db),
     current_user:models.User = Depends(get_current_user)
@@ -366,4 +385,47 @@ def ask(
         "answer":answer,
         "sources":sources
     }
- 
+@app.get("/ask/stream")
+def ask_stream(
+    request:Request,
+    query: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    query_embedding = get_embedding(query)
+
+    results = db.execute(
+        sql_text("""
+            SELECT dc.id, dc.document_id, dc.chunk_text, d.title,
+                   dc.embedding <=> CAST(:query_embedding AS vector) AS distance
+            FROM document_chunks dc
+            JOIN documents d ON dc.document_id = d.id
+            JOIN document_permissions dp ON d.id = dp.document_id
+            WHERE dp.role_id = :role_id
+              AND dc.embedding IS NOT NULL
+              AND dc.embedding <=> CAST(:query_embedding AS vector) < 0.6
+            ORDER BY distance ASC
+            LIMIT 3
+        """),
+        {"query_embedding": str(query_embedding), "role_id": current_user.role_id}
+    ).fetchall()
+
+    sources = [
+        {"document_title": row.title, "document_id": row.document_id}
+        for row in results
+    ]
+
+    def event_generator():
+        if not results:
+            message = "I couldn't find any relevant information in the documents you have access to."
+            yield f"data: {json.dumps({'type': 'chunk', 'text': message})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'sources': []})}\n\n"
+            return
+
+        context_chunks = [row.chunk_text for row in results]
+        for piece in generate_answer_stream(query, context_chunks):
+            yield f"data: {json.dumps({'type': 'chunk', 'text': piece})}\n\n"
+
+        yield f"data: {json.dumps({'type': 'done', 'sources': sources})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
