@@ -108,7 +108,9 @@
 # Limiter(key_func=get_remote_address) — creates the limiter, configured to track limits per client IP address (get_remote_address extracts the caller's IP from each request). This means each unique user/machine gets their own separate limit budget.
 # app.state.limiter = limiter — attaches the limiter to your FastAPI app so it's accessible throughout.
 # add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler) — registers what happens when someone exceeds their limit: this handler automatically returns a clean 429 Too Many Requests response.
-
+# ",".join(str(row.document_id) for row in results) if results else None — this is a generator expression feeding into .join() — for each result row, convert its document_id to a string, then join them all with commas (e.g. "3,4"). If results is empty, store None instead.
+# The logging happens before the if not results: check — meaning we log every query attempt, including ones that found nothing relevant. This is intentional: knowing someone asked something and got no results is itself useful audit information (e.g. "user kept asking about a document they don't have permission for" — a legitimate thing to want visibility into).
+# db.add(log_entry) / db.commit() — same insert pattern you've used since Day 6's signup endpoint.
 
 from fastapi import FastAPI,Depends,HTTPException,UploadFile,File,Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -372,6 +374,16 @@ def ask(
         {"query_embedding":str(query_embedding),"role_id":current_user.role_id}
     ).fetchall()
 
+    document_ids = ",".join(str(row.document_id)for row in results) if results else None
+
+    log_entry = models.QueryLog(
+        user_id = current_user.id,
+        query_text = query,
+        document_ids = document_ids
+    )
+    db.add(log_entry)
+    db.commit()
+
     if not results:
         return {
             "answer": "I couldn't find any relevant information in the documents you have access to.",
@@ -389,18 +401,21 @@ def ask(
         "answer":answer,
         "sources":sources
     }
+
+
 @app.get("/ask/stream")
+@limiter.limit("10/minute")
 def ask_stream(
-    request:Request,
+    request: Request,
     query: str,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
     if not query or not query.strip():
-        raise HTTPException(status_code=422,detail="Query Cannot be empty")
+        raise HTTPException(status_code=422, detail="Query cannot be empty")
     if len(query) > 500:
-        raise HTTPException(status_code=422,detail="Query is to o long (max 500 characters)")
-    
+        raise HTTPException(status_code=422, detail="Query is too long (max 500 characters)")
+
     query_embedding = get_embedding(query)
 
     results = db.execute(
@@ -418,6 +433,16 @@ def ask_stream(
         """),
         {"query_embedding": str(query_embedding), "role_id": current_user.role_id}
     ).fetchall()
+
+    document_ids = ",".join(str(row.document_id) for row in results) if results else None
+
+    log_entry = models.QueryLog(
+        user_id=current_user.id,
+        query_text=query,
+        document_ids_used=document_ids
+    )
+    db.add(log_entry)
+    db.commit()
 
     sources = [
         {"document_title": row.title, "document_id": row.document_id}

@@ -29,9 +29,16 @@
 # DateTime(timezone=True), server_default=func.now() — this tells Postgres itself (not Python) to automatically stamp the current time when a row is created. 
 # server_default (vs a Python-side default) means it's reliable even if multiple different services insert rows — the database's clock is the single source of truth.
 # DocumentPermission — exactly the join table from the diagram: just two foreign keys (document_id, role_id) plus its own id. 
-# Each row is literally one permission grant.
+# # Each row is literally one permission grant.
+# user_id = Column(Integer, ForeignKey("users.id")) — links each log entry to exactly who asked.
+# query_text — the actual question asked, stored verbatim.
+# document_ids_used = Column(String, nullable=True) — we'll store which document IDs contributed to the answer, as a comma-separated string (a simple, pragmatic choice — a more sophisticated version might use a proper join table like document_permissions, but for an audit log, a simple string is genuinely fine and common in practice). nullable=True since a query with zero results (nothing found) legitimately has no documents to log.
+# created_at — same auto-timestamp pattern as your Document model 
+
+
 
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy import DateTime as DateTimeColumn
 from database import Base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -81,3 +88,12 @@ class DocumentChunk(Base):
     document_id = Column(Integer,ForeignKey("documents.id"),nullable=False)
     chunk_text = Column(String,nullable=False)
     embedding = Column(Vector(384))
+
+class QueryLog(Base):
+    __tablename__ = "query_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    query_text = Column(String, nullable=False)
+    document_ids_used = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
