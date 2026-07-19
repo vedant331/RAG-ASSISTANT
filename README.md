@@ -19,6 +19,7 @@ A permission-aware RAG system where document retrieval respects role-based acces
 - [x] Rate limiting on LLM endpoints
 - [x] Input validation and prompt-injection awareness
 - [x] Structured audit logging
+- [x] Backend fully containerized (Docker Compose: FastAPI + Postgres/pgvector)
 - [ ] Cloud deployment
 
 ## Tech Stack
