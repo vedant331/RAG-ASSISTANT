@@ -24,11 +24,18 @@
 // formData.append("title", title) / formData.append("file", file) 
 // — adds each piece, matching the exact field names your FastAPI endpoint expects (title: str and file: UploadFile).
 // Notice: no "Content-Type": "application/json" header for the upload function — when sending FormData, 
-// the browser automatically sets the correct multipart/form-data content type (including a special boundary marker) for you. Manually setting it yourself would actually break the request
+// // the browser automatically sets the correct multipart/form-data content type (including a special boundary marker) for you. Manually setting it yourself would actually break the request
+// onChunk: (text: string) => void and onDone: (sources: Source[]) => void — this function takes callback functions as parameters, rather than returning a single value. Since data arrives progressively, we can't just return one final answer — instead, we call onChunk every time a new piece arrives, and onDone once at the very end. The calling code (in ChatPage) will define what these callbacks actually do.
+// response.body.getReader() — gets a low-level reader for the raw response stream, letting you pull data as it arrives instead of waiting for the whole thing.
+// const decoder = new TextDecoder() — the stream arrives as raw bytes; TextDecoder converts those bytes into readable text.
+// while (true) { const { done, value } = await reader.read() ... } — an infinite loop that keeps pulling more data until done becomes true (meaning the stream has ended).
+// buffer += decoder.decode(value, { stream: true }) — appends newly-decoded text to a running buffer, since a single "chunk" of bytes from the network might contain a partial event, or multiple events at once.
+// buffer.split("\n\n") — splits the buffer on our SSE event separator. parts.pop() removes and returns the last element (which might be an incomplete event still waiting for more data) and keeps it in buffer for next time, while everything else in parts is a complete, ready-to-process event.
+// part.slice(6) — removes the literal "data: " prefix (6 characters) to get just the JSON portion.
+// JSON.parse(jsonStr) — converts the JSON string back into a real JavaScript object.
 
 
-
-
+import type { Source } from "./types"
 
 const API_BASE_URL = "http://127.0.0.1:8000"
 
@@ -107,4 +114,48 @@ export async function grantPermission(documentId: number, roleName: string, toke
   }
 
   return response.json()
+}
+export async function askQuestionStream(
+  query: string,
+  token: string,
+  onChunk: (text: string) => void,
+  onDone: (sources: Source[]) => void
+) {
+  const response = await fetch(`${API_BASE_URL}/ask/stream?query=${encodeURIComponent(query)}`, {
+    method: "GET",
+    headers: { "Authorization": `Bearer ${token}` },
+  })
+
+  if (response.status === 401) {
+    throw new Error("UNAUTHORIZED")
+  }
+
+  if (!response.ok || !response.body) {
+    throw new Error("Failed to get an answer")
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const parts = buffer.split("\n\n")
+    buffer = parts.pop() ?? ""
+
+    for (const part of parts) {
+      if (!part.startsWith("data: ")) continue
+      const jsonStr = part.slice(6)
+      const event = JSON.parse(jsonStr)
+
+      if (event.type === "chunk") {
+        onChunk(event.text)
+      } else if (event.type === "done") {
+        onDone(event.sources)
+      }
+    }
+  }
 }
