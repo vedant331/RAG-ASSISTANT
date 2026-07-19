@@ -112,7 +112,7 @@
 # The logging happens before the if not results: check — meaning we log every query attempt, including ones that found nothing relevant. This is intentional: knowing someone asked something and got no results is itself useful audit information (e.g. "user kept asking about a document they don't have permission for" — a legitimate thing to want visibility into).
 # db.add(log_entry) / db.commit() — same insert pattern you've used since Day 6's signup endpoint.
 
-from fastapi import FastAPI,Depends,HTTPException,UploadFile,File,Request
+from fastapi import FastAPI,Depends,HTTPException,UploadFile,File,Request,Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -135,7 +135,7 @@ Base.metadata.create_all(bind =engine)
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173","http://localhost:4173",],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -273,7 +273,7 @@ def list_documents(
 
 @app.post("/documents/upload")
 async def upload_document(
-    title: str,
+    title: str = Form(...),
     file : UploadFile = File(...),
     db : Session = Depends(get_db),
     admin_user: models.User = Depends(require_admin)
