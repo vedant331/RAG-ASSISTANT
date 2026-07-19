@@ -12,10 +12,18 @@
 # " In plain terms: for each incoming request, FastAPI calls get_db(), hands your endpoint the session (the yielded value), and once the endpoint finishes 
 # — success or failure — it automatically runs the finally: db.close() to clean up. You never have to manually open/close sessions yourself in each endpoint.
 
+import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-DATABASE_URL = "postgresql://rag_user:rag_password@localhost:5432/rag_assistant"
+
+load_dotenv()
+
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://rag_user:rag_password@localhost:5432/rag_assistant"
+)
 
 engine = create_engine(DATABASE_URL)
 
