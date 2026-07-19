@@ -350,8 +350,12 @@ def ask(
     db:Session = Depends(get_db),
     current_user:models.User = Depends(get_current_user)
 ):
-    query_embedding = get_embedding(query)
+    if not query or not query.strip():
+        raise HTTPException(status_code=422,detail="Query Cannot be empty")
+    if len(query) > 500:
+        raise HTTPException(status_code=422,detail="Query is to o long (max 500 characters)")
 
+    query_embedding = get_embedding(query)
     results = db.execute(
         sql_text("""
                  SELECT dc.id, dc.document_id, dc.chunk_text, d.title,
@@ -392,6 +396,11 @@ def ask_stream(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
+    if not query or not query.strip():
+        raise HTTPException(status_code=422,detail="Query Cannot be empty")
+    if len(query) > 500:
+        raise HTTPException(status_code=422,detail="Query is to o long (max 500 characters)")
+    
     query_embedding = get_embedding(query)
 
     results = db.execute(
