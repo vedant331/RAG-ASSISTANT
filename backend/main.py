@@ -379,7 +379,7 @@ def ask(
     log_entry = models.QueryLog(
         user_id = current_user.id,
         query_text = query,
-        document_ids = document_ids
+        document_ids_used = document_ids
     )
     db.add(log_entry)
     db.commit()

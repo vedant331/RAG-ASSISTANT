@@ -43,13 +43,13 @@ from database import Base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
+from database import Base
 
 class Role(Base):
     __tablename__ = "roles"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False)
-
     users = relationship("User", back_populates="role")
 
 
@@ -61,6 +61,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
 
+    documents = relationship("Document",back_populates="owner")
     role = relationship("Role", back_populates="users")
 
 
@@ -73,6 +74,8 @@ class Document(Base):
     uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    owner = relationship("User",back_populates="documents")
+    chunks = relationship("DocumentChunk",back_populates="document")
 
 class DocumentPermission(Base):
     __tablename__ = "document_permissions"
@@ -88,6 +91,8 @@ class DocumentChunk(Base):
     document_id = Column(Integer,ForeignKey("documents.id"),nullable=False)
     chunk_text = Column(String,nullable=False)
     embedding = Column(Vector(384))
+
+    document = relationship("Document",back_populates="chunks")
 
 class QueryLog(Base):
     __tablename__ = "query_logs"
